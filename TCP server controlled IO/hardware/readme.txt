@@ -1,0 +1,1 @@
+Hardware component is simply the Zynq Processing System, with an AXI interface to the board LEDS
