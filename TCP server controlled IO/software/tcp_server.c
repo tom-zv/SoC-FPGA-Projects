@@ -110,6 +110,7 @@ err_t accept_callback(void *arg, struct tcp_pcb *newpcb, err_t err)
 
 	tcp_args *args = malloc(sizeof(tcp_args));
     if (args == NULL) {
+		
         // Handle memory allocation error
         return ERR_MEM;
     }

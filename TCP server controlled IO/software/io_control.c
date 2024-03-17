@@ -32,9 +32,9 @@ void switch_leds(XGpio *led_driver){
     
     u32 LEDS = XGpio_DiscreteRead(led_driver, 1);
 
-    switch(LEDS)
+    switch(LEDS) // cycle through r-g-b, on both leds;
     {
-    case 0b000000: // initial case
+    case 0b000000: // initial case 
         XGpio_DiscreteWrite(led_driver,1, 0b000001);
         break;
     case 0b000001:

@@ -48,6 +48,8 @@ initial begin
 	#2000
 	
 	btn = 1'b0;
+	
+	#2000
    
  
     end

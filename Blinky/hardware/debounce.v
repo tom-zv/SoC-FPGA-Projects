@@ -24,15 +24,15 @@ module debounce
 	  
         rise <= 0;
        
-        if (counter == MAX_COUNT - 1) begin  // If successfully debounced, notify what happened.
+        if (counter == MAX_COUNT - 1) begin  // successfully debounced
             out <= in;
             rise <= w_rise;          
         end
-		else if (in == out) begin // reset counter if input indicates no change
+		else if (in == out) begin // reset counter if no change
             counter <= 0;  
         end
         else if (in != out) begin 
-            counter <= counter + 1;  // increment when input and output differ.
+            counter <= counter + 1;  // increment when input != output
         end
     end
 

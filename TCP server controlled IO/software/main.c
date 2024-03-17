@@ -129,7 +129,7 @@ int main()
 #endif
 	/* the mac address of the board. this should be unique per board */
 	unsigned char mac_ethernet_address[] =
-	{ 0x00, 0x18, 0x3E, 0x04, 0x6E, 0x53 };
+	{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };  // Masked unique ID
 
 	echo_netif = &server_netif;
 #if defined (__arm__) && !defined (ARMR5)

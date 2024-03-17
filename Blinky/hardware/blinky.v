@@ -77,13 +77,13 @@ module blinky(
             led_on:
                 if (button0_debounced) begin 
                     next_state = blink;
-                    //count = 0;  // less jarring state switches
+                    count = 0;  // less jarring state switches
                 end
                 else next_state = state;
             blink: 
                 if (button0_debounced) begin
                     next_state = rapidblink;
-                    //count = 0;
+                    count = 0;
                 end
                 else next_state = state;
             rapidblink: 
