@@ -10,6 +10,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 
+#include "ir_http_server.h"
 #include "wifi.h"
 
 #define ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
@@ -45,7 +46,6 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 }
 
 void wifi_connect_sta(void){
-
     // init wifi
     wifi_event_group = xEventGroupCreate();
 
@@ -90,9 +90,9 @@ void wifi_connect_sta(void){
 
     // wait for connection fail or success
     EventBits_t bits = xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-    pdFALSE,
-    pdFALSE,
-    portMAX_DELAY);
+                                           pdFALSE,
+                                           pdFALSE,
+                                           portMAX_DELAY);
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "ESP32 connected to AP");
@@ -101,5 +101,9 @@ void wifi_connect_sta(void){
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }
+}
 
+void register_connect_disconnect_handlers(void* connect_ctx, void* disconnect_ctx) {
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, disconnect_ctx));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, connect_ctx));
 }
