@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
 #include <esp_http_server.h>
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -29,6 +31,7 @@
 
 
 static const char *TAG = "IR receiver main";
+
 
 static void ir_http_server(void* pvParameters)
 {   
@@ -60,6 +63,8 @@ static void ir_http_server(void* pvParameters)
 
     ir_jetpoint_settings_t settings;
     set_jetpoint_settings(&settings, 1, 1, 1, 25, 0, 0);
+
+    
     
     rmt_encoder_handle_t jetpoint_encoder = NULL;
     ESP_ERROR_CHECK(rmt_new_jetpoint_encoder(&jetpoint_encoder));
@@ -96,6 +101,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // sync esp time
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
 
     wifi_connect_sta();
