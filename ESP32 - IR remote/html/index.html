@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AC Settings</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #f0f0f0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+    }
+    form {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    input[type="text"], input[type="submit"] {
+        width: 100%;
+        padding: 8px;
+        margin-top: 6px;
+        margin-bottom: 16px;
+        box-sizing: border-box; /* Includes padding and border in the element's width and height */
+    }
+    input[type="submit"] {
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+    input[type="submit"]:hover {
+        opacity: 0.9;
+    }
+</style>
+<script src="script.js"></script>
+</head>
+<body id="index">
+    <form action="/set" method="post">
+        <h1>Current AC Settings</h1>
+        <div id="settings"></div>
+        <label for="power">Power:</label>
+        <input type="text" id="power" name="power"><br>
+        <label for="mode">Mode:</label>
+        <input type="text" id="mode" name="mode"><br>
+        <label for="fan">Fan:</label>
+        <input type="text" id="fan" name="fan"><br>
+        <label for="temperature">Temperature:</label>
+        <input type="text" id="temperature" name="temperature"><br>
+        <label for="swing">Swing:</label>
+        <input type="text" id="swing" name="swing"><br>
+        <label for="sleep">Sleep:</label>
+        <input type="text" id="sleep" name="sleep"><br>
+        <input type="submit" value="Submit">
+    </form>
+</body>
+<script>
+document.querySelector('form').onsubmit = function(e) {
+    if (!document.getElementById('power').value) {
+        alert('Please enter power settings');
+        e.preventDefault(); // Prevent form submission if power is empty
+    }
+};
+</script>
+</body>
+</html>

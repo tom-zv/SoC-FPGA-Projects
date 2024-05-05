@@ -21,7 +21,7 @@ static int s_retry_num = 0;
 
 EventGroupHandle_t wifi_event_group;
 
-static void event_handler(void* arg, esp_event_base_t event_base,
+static void network_event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -64,12 +64,12 @@ void wifi_connect_sta(void){
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                         ESP_EVENT_ANY_ID,
-                                                        &event_handler,
+                                                        &network_event_handler,
                                                         NULL,
                                                         &instance_any_id_wifi));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
                                                         IP_EVENT_STA_GOT_IP,
-                                                        &event_handler,
+                                                        &network_event_handler,
                                                         NULL,
                                                         &instance_got_ip));
 
@@ -103,7 +103,7 @@ void wifi_connect_sta(void){
     }
 }
 
-void register_connect_disconnect_handlers(void* connect_ctx, void* disconnect_ctx) {
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, disconnect_ctx));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, connect_ctx));
+void register_connect_disconnect_handlers(void* server_context) {
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, server_context));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, server_context));
 }

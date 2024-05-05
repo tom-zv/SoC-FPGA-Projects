@@ -11,6 +11,6 @@ extern EventGroupHandle_t wifi_event_group;
 
 void wifi_connect_sta(void);
 
-void register_connect_disconnect_handlers(void* connect_ctx, void* disconnect_ctx);
+void register_connect_disconnect_handlers(void* server_context);
 
 #endif // WIFI_H
