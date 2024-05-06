@@ -1,69 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>AC Settings</title>
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        background: #f0f0f0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-    }
-    form {
-        background: white;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    input[type="text"], input[type="submit"] {
-        width: 100%;
-        padding: 8px;
-        margin-top: 6px;
-        margin-bottom: 16px;
-        box-sizing: border-box; /* Includes padding and border in the element's width and height */
-    }
-    input[type="submit"] {
-        background-color: #4CAF50;
-        color: white;
-        border: none;
-        cursor: pointer;
-    }
-    input[type="submit"]:hover {
-        opacity: 0.9;
-    }
-</style>
-<script src="script.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AC Remote Control</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
 </head>
-<body id="index">
-    <form action="/set" method="post">
-        <h1>Current AC Settings</h1>
-        <div id="settings"></div>
-        <label for="power">Power:</label>
-        <input type="text" id="power" name="power"><br>
-        <label for="mode">Mode:</label>
-        <input type="text" id="mode" name="mode"><br>
-        <label for="fan">Fan:</label>
-        <input type="text" id="fan" name="fan"><br>
-        <label for="temperature">Temperature:</label>
-        <input type="text" id="temperature" name="temperature"><br>
-        <label for="swing">Swing:</label>
-        <input type="text" id="swing" name="swing"><br>
-        <label for="sleep">Sleep:</label>
-        <input type="text" id="sleep" name="sleep"><br>
-        <input type="submit" value="Submit">
-    </form>
+<style>
+/*--------------power button--------------*/
+.power-button-container {
+    margin: 20px auto;
+    text-align: center;
+}
+
+.power-button {
+    padding: 20px 45px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+    width: auto;
+    display: inline-block;
+}
+
+.power-button:hover {
+    background-color: #666;
+    transform: scale(1.05);
+}
+
+.power-off {
+    background-color: #8b0000;
+    color: white;
+}
+
+.power-on {
+    background-color: #006b05;
+    color: white;
+}
+
+/*--------------control group--------------*/
+.control-group {
+    margin: 20px;
+    display: inline-block;
+    background-color: #222;
+    padding: 10px;
+    border-radius: 10px;
+}
+
+.control-group span {
+    font-size: 22px;
+}
+
+/*--------------mode buttons--------------*/
+i.material-icons-outlined {
+    color: #9b9b9c;
+    font-size: 40px;
+}
+
+.mode-container {
+    margin: 20px auto;
+    display: flex;
+    justify-content: center;
+    padding: 10px;
+}
+
+.mode-button {
+    padding: 28px 38px;
+    margin-left: 25px;
+    font-size: 18px;
+    border: none;
+    border-radius: 200px;
+    background-color: #333;
+    color: #ddd;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+}
+
+.mode-button:hover,
+.mode-button.active {
+    background-color: #555;
+    color: white;
+    transform: scale(1.1);
+}
+
+.fas {
+    margin-right: 2px;
+}
+</style>
+
+<body>
+    <header>
+        <h1>AC Remote Control</h1>
+    </header>
+
+    <main>
+        <div class="power-button-container">
+            <button id="power-button" onclick="togglePower()" class="power-button power-off">
+                <i class="material-icons-outlined">power_settings_new</i>
+            </button>
+        </div>
+
+        <div class="control-group">
+            <label>Fan Speed:</label>
+            <button onclick="changeFanSpeed(-1)">-</button>
+            <span id="fanSpeedDisplay">1</span> <!-- Placeholder for fan speed -->
+            <button onclick="changeFanSpeed(1)">+</button>
+        </div>
+
+        <div class="control-group">
+            <button onclick="changeTemperature(-1)">-</button>
+            <span id="tempDisplay">22°C</span> <!-- Placeholder for temperature -->
+            <button onclick="changeTemperature(1)">+</button>
+        </div>
+
+        <div class="mode-container">
+            <button onclick="changeMode('COOL')" id="mode-COOL" class="mode-button">
+                <i class="material-icons-outlined">ac_unit</i>
+            </button>
+            <button onclick="changeMode('HEAT')" id="mode-HEAT" class="mode-button">
+                <i class="material-icons-outlined">wb_sunny</i>
+            </button>
+            <button onclick="changeMode('DRY')" id="mode-DRY" class="mode-button">
+                <i class="material-icons-outlined">water_drop</i>
+            </button>
+            <button onclick="changeMode('FAN')" id="mode-FAN" class="mode-button">
+                <i class="material-icons-outlined">air</i>
+            </button>
+        </div>
+    </main>
+
+    <footer>
+        <p>AC Remote Control Webpage</p>
+        <button onclick="window.location.href='/upload.html'" class="footer-button">
+            Upload Page
+        </button>
+    </footer>
+
+    <script src="script.js"></script>
 </body>
-<script>
-document.querySelector('form').onsubmit = function(e) {
-    if (!document.getElementById('power').value) {
-        alert('Please enter power settings');
-        e.preventDefault(); // Prevent form submission if power is empty
-    }
-};
-</script>
-</body>
+
 </html>

@@ -52,6 +52,9 @@ esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filename)
     else if (IS_FILE_EXT(filename, ".js")) {
         return httpd_resp_set_type(req, "application/javascript");
     }
+    else if (IS_FILE_EXT(filename, ".css")) {
+        return httpd_resp_set_type(req,"text/css");
+    }
     /* For any other type always set as plain text */
     return httpd_resp_set_type(req, "text/plain");
 }

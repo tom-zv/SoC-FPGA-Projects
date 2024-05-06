@@ -116,7 +116,7 @@ esp_err_t set_post_handler(httpd_req_t *req){
     }
 
     set_jetpoint_settings(server_ctx->ir_settings, power, mode, fan, temperature, swing, sleep);
-    ESP_LOGI(TAG, "Settings applied: Power=%d, Mode=%d, Fan=%d, Temp=%d, Swing=%d, Sleep=%d\n",
+    ESP_LOGI(TAG, "Settings applied: power=%d, mode=%d, fan=%d, temp=%d, swing=%d, sleep=%d\n",
                  server_ctx->ir_settings->power, server_ctx->ir_settings->mode, server_ctx->ir_settings->fan, 
                  server_ctx->ir_settings->temperature + 16, server_ctx->ir_settings->swing, server_ctx->ir_settings->sleep);
 
@@ -145,13 +145,18 @@ esp_err_t update_post_handler(httpd_req_t *req){
     }
     content[received] = '\0';
 
-    if (!strncmp(content, "TEMP_UP", sizeof("TEMP_UP") - 1))
+    if(!strncmp(content, "POWER", sizeof("POWER") - 1)){
+        server_ctx->ir_settings->power = !server_ctx->ir_settings->power;
+    }
+    else if(!strncmp(content, "SWING", sizeof("SWING") - 1)){
+        server_ctx->ir_settings->swing = !server_ctx->ir_settings->swing;
+    }
+    else if (!strncmp(content, "TEMP_UP", sizeof("TEMP_UP") - 1))
     {
         if(server_ctx->ir_settings->temperature < 14){
             server_ctx->ir_settings->temperature++;
         }
     }
-    
     else if (!strncmp(content, "TEMP_DOWN", sizeof("TEMP_DOWN") - 1))
     {
         if(server_ctx->ir_settings->temperature > 0){
@@ -178,6 +183,22 @@ esp_err_t update_post_handler(httpd_req_t *req){
     {
         server_ctx->ir_settings->mode = 2;
     }
+    else if(!strncmp(content, "AUTO", sizeof("AUTO") - 1)){
+        server_ctx->ir_settings->mode = 3;
+    }
+    else if(!strncmp(content, "DRY", sizeof("DRY") - 1)){
+        server_ctx->ir_settings->mode = 4;
+    }
+    else if(!strncmp(content, "FAN", sizeof("FAN") - 1)){
+        server_ctx->ir_settings->mode = 5;
+    }
+
+    // Send new settings to AC
+    ESP_ERROR_CHECK(rmt_transmit(*server_ctx->tx_channel, *server_ctx->ir_encoder, server_ctx->ir_settings, sizeof(*server_ctx->ir_settings), server_ctx->tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(*server_ctx->tx_channel, portMAX_DELAY));
+
+    httpd_resp_send(req, NULL, 0);
+
     return ESP_OK;
 }
 
@@ -185,11 +206,12 @@ esp_err_t settings_get_handler(httpd_req_t *req){
 
     server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
     httpd_resp_set_hdr(req, "Date", get_http_date());
-    char settings[64];
-    snprintf(settings, sizeof(settings), "Power: %d, Mode: %d, Fan: %d, Temp: %d, Swing: %d, Sleep: %d",
+    char settings_json[128];
+    snprintf(settings_json, sizeof(settings_json), "{\"power\":%d, \"mode\": %d, \"fan\": %d, \"temp\": %d, \"swing\": %d, \"sleep\": %d}",
              server_ctx->ir_settings->power, server_ctx->ir_settings->mode, server_ctx->ir_settings->fan, server_ctx->ir_settings->temperature + 16, server_ctx->ir_settings->swing, server_ctx->ir_settings->sleep);
 
-    httpd_resp_send(req, settings, strlen(settings));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, settings_json, strlen(settings_json));
     return ESP_OK;
 }
 
@@ -308,7 +330,7 @@ esp_err_t start_ir_webserver(server_context_t* server_context)
 {
     // SSL config
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
-    conf.user_cb = https_server_user_callback;
+    //conf.user_cb = https_server_user_callback; // show https connection info
     // Load embedded server certificates
     extern const unsigned char servercert_start[] asm("_binary_servercert_pem_start");
     extern const unsigned char servercert_end[]   asm("_binary_servercert_pem_end");
@@ -324,6 +346,8 @@ esp_err_t start_ir_webserver(server_context_t* server_context)
     conf.httpd.server_port = SERVER_PORT;
     conf.httpd.max_uri_handlers = 10;
     conf.httpd.uri_match_fn = httpd_uri_match_wildcard;
+    
+    conf.port_secure = 6230;
     
     char* file_buf = malloc(FILE_BUF_SIZE); 
     if (!file_buf) {
