@@ -3,171 +3,86 @@
 
 <head>
     <title>File upload</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
-        .form-container {
-            display: flex;
+        body {
+            display: none;
+        }
+        .upload-container {
+            display: inline-flex;
             flex-direction: column;
             align-items: center;
-            /* Centers items horizontally in a flex column layout */
-            width: 100%;
-            /* Use full width to center content */
+            justify-content: space-between;
+            background-color: rgb(49, 49, 49);
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 35px;
         }
-
-        input{
-            margin-top: 12px;
+        .upload-container label{
+            margin-top: 50px;
+        }    
+        .upload-container .file-button{
+            margin-top : 20px;
+            justify-content: center;
+            width: 30%;
+        }
+        .file-update-container {
+            display: flex;
+            margin: auto;
+            flex-wrap: wrap;  /* Allows items to wrap into the next line as needed */
+            gap: 10px;        /* Provides space between buttons */
+            justify-content: center; /* Center-aligns items horizontally */
+            align-items: center; /* Center-aligns items vertically */
+            flex: 1 1 100px; /* Flex-grow, Flex-shrink, Flex-basis */
+            margin: 5px;
             padding: 10px;
+            background-color: rgb(49, 49, 49); /* Light grey background for visibility */
             border-radius: 5px;
-            border: 1px solid #ddd;
-            width: 20%;
-            /* Consistent width for all input elements */
-            background-color: #474747;
-            box-sizing: border-box;
-            /* Includes padding and border in the element's total width */
         }
-
-        label {
-            display: block;
-            margin-top: 20px;
-            text-align: center;
-            /* Center-align the text of the label */
-        }
-
-        #upload {
-            display: block;
-            width: 10%;
-            margin-top: 30px;
-            margin-bottom: 60px;
-            align-self: center;
-            /* Center the button specifically if needed */
-        }
-
-        .replace-btn {
-            width: 20%;
+        .file-button {
+            padding: 8px;
+            width: 70%;
+            border: none;
+            border-radius: 8px;
         }
         @media (max-width: 600px) {
-            input, button {
-                width: 90%; /* Makes input and buttons wider on smaller screens */
+            button {
+                width: 20%;
+            }
+        }
+        @media (min-width: 601px) {
+            .file-update-container{
+                margin: auto;
+                width: 20%;
             }
         }
     </style>
 </head>
 
 <body>
-    <h1 style="text-align: center;">ESP32 IR Server File Upload</h1>
-    <div class="form-container">
-        <input id="newfile" type="file" onchange="setpath()">
-        <label for="filepath">Set path on server</label>
-        <input id="filepath" type="text">
-        <button id="upload" type="button" onclick="upload()">Upload</button>
-    </div>
-    <div id="file-list"></div>
+    <header>
+        <h1>ESP32 IR Server File Upload</h1>
+    </header>
+    <main>
+        <div class="upload-container">
+            <input id="new-file" type="file" onchange="setpath()">
+            <label for="file-name">Set file name</label>
+            <input id="file-name" type="text">
+            <button class="file-button" type="button" onclick="processFileUpload('new-file', 'file-name')">Upload</button>
+        </div>
 
+        
+
+        <div class="file-update-container" id="fileList"></div>
+    </main>
     <footer>
         <button onclick="window.location.href='/index.html'" class="footer-button">
             Home
         </button>
     </footer>
-
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            fetch('/listdir')
-                .then(response => response.json())
-                .then(data => {
-                    const fileList = document.getElementById('file-list');
-                    Object.keys(data).forEach(filename => {
-                        const fileItem = document.createElement('div');
-                        fileItem.className = 'file-item';
-                        fileItem.innerHTML = `
-                    <input type="file" id="file-input-${filename}" style="display: none;">
-                    <button class = "replace-btn" onclick="replaceFile('${filename}')">Update ${filename}</button>
-                `;
-                        fileList.appendChild(fileItem);
-                    })
-                });
-        });
-        function setpath() {
-            var default_path = document.getElementById("newfile").files[0].name;
-            document.getElementById("filepath").value = default_path;
-        }
-        function upload() {
-            var filePath = document.getElementById("filepath").value;
-            var upload_path = "/upload/" + filePath;
-            var fileInput = document.getElementById("newfile").files;
-
-            var MAX_FILE_SIZE = 200 * 1024;
-            var MAX_FILE_SIZE_STR = "200KB";
-
-            if (fileInput.length == 0) {
-                alert("No file selected!");
-            } else if (filePath.length == 0) {
-                alert("File path on server is not set!");
-            } else if (filePath.indexOf(' ') >= 0) {
-                alert("File path on server cannot have spaces!");
-            } else if (filePath[filePath.length - 1] == '/') {
-                alert("File name not specified after path!");
-            } else if (fileInput[0].size > 200 * 1024) {
-                alert("File size must be less than 200KB!");
-            } else {
-                document.getElementById("newfile").disabled = true;
-                document.getElementById("filepath").disabled = true;
-                document.getElementById("upload").disabled = true;
-
-                var file = fileInput[0];
-                var xhttp = new XMLHttpRequest();
-                xhttp.onreadystatechange = function () {
-                    if (xhttp.readyState == 4) {
-                        if (xhttp.status == 200) {
-                            console.log(xhttp.responseText); // Log response or handle as needed
-                            alert('Upload successful!');
-                        } else if (xhttp.status == 0) {
-                            alert("Server closed the connection abruptly!");
-                            location.reload()
-                        } else {
-                            alert(xhttp.status + " Error!\n" + xhttp.responseText);
-                            location.reload()
-                        }
-                    }
-                };
-                xhttp.open("POST", upload_path, true);
-                xhttp.send(file);
-            }
-        }
-        function replaceFile(fileName) {
-            const fileInput = document.getElementById(`file-input-${fileName}`);
-            fileInput.click(); // Trigger file input
-
-            fileInput.onchange = () => {
-                const file = fileInput.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function (evt) {
-                        const fileContent = evt.target.result;
-                        const xhttp = new XMLHttpRequest();
-                        xhttp.onreadystatechange = function () {
-                            if (xhttp.readyState === 4) {
-                                if (xhttp.status === 200) {
-                                    console.log('Success:', xhttp.responseText);
-                                    alert(`File ${fileName} replaced successfully.`);
-                                } else {
-                                    console.error('Error:', xhttp.status, xhttp.responseText);
-                                    alert(`Error replacing file ${fileName}: ${xhttp.responseText}`);
-                                }
-                            }
-                        };
-                        xhttp.open("POST", `/upload/${fileName}`, true);
-                        xhttp.send(fileContent);
-                    };
-                    reader.onerror = function () {
-                        alert("Failed to read file");
-                    };
-                    reader.readAsBinaryString(file); // Or use `readAsArrayBuffer` if needed
-                }
-            }
-        }
-    </script>
+    <script src="upload.js"></script>
 </body>
 
 </html>

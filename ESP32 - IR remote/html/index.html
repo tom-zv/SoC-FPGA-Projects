@@ -8,92 +8,10 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <style>
-/*--------------power button--------------*/
-.power-button-container {
-    margin: 20px auto;
-    text-align: center;
-}
-
-.power-button {
-    padding: 20px 45px;
-    border-radius: 12px;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.3s, transform 0.2s;
-    width: auto;
-    display: inline-block;
-}
-
-.power-button:hover {
-    background-color: #666;
-    transform: scale(1.05);
-}
-
-.power-off {
-    background-color: #8b0000;
-    color: white;
-}
-
-.power-on {
-    background-color: #006b05;
-    color: white;
-}
-
-/*--------------control group--------------*/
-.control-group {
-    margin: 20px;
-    display: inline-block;
-    background-color: #222;
-    padding: 10px;
-    border-radius: 10px;
-}
-
-.control-group span {
-    font-size: 22px;
-}
-
-/*--------------mode buttons--------------*/
-i.material-icons-outlined {
-    color: #9b9b9c;
-    font-size: 40px;
-}
-
-.mode-container {
-    margin: 20px auto;
-    display: flex;
-    justify-content: center;
-    padding: 10px;
-}
-
-.mode-button {
-    padding: 28px 38px;
-    margin-left: 25px;
-    font-size: 18px;
-    border: none;
-    border-radius: 200px;
-    background-color: #333;
-    color: #ddd;
-    cursor: pointer;
-    transition: background-color 0.3s, transform 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 80px;
-    height: 80px;
-}
-
-.mode-button:hover,
-.mode-button.active {
-    background-color: #555;
-    color: white;
-    transform: scale(1.1);
-}
-
-.fas {
-    margin-right: 2px;
-}
+    body {
+            display: none;
+        }
 </style>
-
 <body>
     <header>
         <h1>AC Remote Control</h1>
@@ -107,16 +25,26 @@ i.material-icons-outlined {
         </div>
 
         <div class="control-group">
-            <label>Fan Speed:</label>
-            <button onclick="changeFanSpeed(-1)">-</button>
-            <span id="fanSpeedDisplay">1</span> <!-- Placeholder for fan speed -->
-            <button onclick="changeFanSpeed(1)">+</button>
+            <label for="fanSpeedDisplay">Fan Speed</label>
+            <div class="pm-controls">
+                <button onclick="changeFanSpeed(-1)">-</button>
+                <span id="fanSpeedDisplay" class="value-display"></span> <!-- Placeholder for fan speed icons -->
+                <button onclick="changeFanSpeed(1)">+</button>
+            </div>
         </div>
 
         <div class="control-group">
-            <button onclick="changeTemperature(-1)">-</button>
-            <span id="tempDisplay">22°C</span> <!-- Placeholder for temperature -->
-            <button onclick="changeTemperature(1)">+</button>
+            <div class="pm-controls">
+                <button onclick="changeTemperature(-1)">-</button>
+                <span id="tempDisplay" class="value-display">22°C</span> <!-- Placeholder for temperature -->
+                <button onclick="changeTemperature(1)">+</button>
+            </div>
+        </div>
+
+        <div class="swing-button-container">
+            <button id="swing-button" onclick="toggleSwing()" class="swing-button">
+                <i class="material-icons-outlined">shuffle</i>
+            </button>
         </div>
 
         <div class="mode-container">
@@ -142,7 +70,7 @@ i.material-icons-outlined {
         </button>
     </footer>
 
-    <script src="script.js"></script>
+    <script src="index.js"></script>
 </body>
 
 </html>
