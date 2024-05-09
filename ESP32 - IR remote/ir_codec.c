@@ -15,10 +15,17 @@ typedef struct
     rmt_encoder_t *bytes_encoder;
     rmt_encoder_t *copy_encoder;
     rmt_symbol_word_t trailing_symbol;
-}   rmt_jetpoint_encoder_t;
+}   rmt_jetpoint_encoder;
 
+esp_err_t transmit_ir(rmt_channel_handle_t *tx_channel, rmt_encoder_handle_t *ir_encoder,
+                      ir_jetpoint_settings *ir_settings, rmt_transmit_config_t *tx_config)
+{
+    ESP_ERROR_CHECK(rmt_transmit(*tx_channel, *ir_encoder, ir_settings, sizeof(*ir_settings), tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(*tx_channel, portMAX_DELAY));
+    return ESP_OK;
+}
 
-void set_jetpoint_settings(ir_jetpoint_settings_t *settings, bool power, uint8_t mode, uint8_t fan, uint8_t temperature, bool swing, bool sleep)
+void set_jetpoint_settings(ir_jetpoint_settings *settings, bool power, uint8_t mode, uint8_t fan, uint8_t temperature, bool swing, bool sleep)
 {
     settings->power = power ? 1 : 0;
     settings->mode = mode;              
@@ -29,7 +36,7 @@ void set_jetpoint_settings(ir_jetpoint_settings_t *settings, bool power, uint8_t
     settings->ones1 = 1; 
 }
 
-void encode_jetpoint_settings(rmt_symbol_word_t *symbols, ir_jetpoint_settings_t *settings)
+void encode_jetpoint_settings(rmt_symbol_word_t *symbols, ir_jetpoint_settings *settings)
 {
     symbols[0] = (rmt_symbol_word_t){ // leading symbol
         .level0 = 1,
@@ -64,13 +71,13 @@ void encode_jetpoint_settings(rmt_symbol_word_t *symbols, ir_jetpoint_settings_t
 size_t rmt_encode_jetpoint(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
 {
 
-    rmt_jetpoint_encoder_t *enc = __containerof(encoder, rmt_jetpoint_encoder_t, base);
+    rmt_jetpoint_encoder *enc = __containerof(encoder, rmt_jetpoint_encoder, base);
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
     rmt_encode_state_t state = RMT_ENCODING_RESET;
     size_t encoded_symbols = 0;
 
     rmt_symbol_word_t symbols[(DATA_BITS+1) * 3 + 1];
-    encode_jetpoint_settings(symbols, (ir_jetpoint_settings_t *)primary_data);
+    encode_jetpoint_settings(symbols, (ir_jetpoint_settings *)primary_data);
     
     switch (enc->state)
     {
@@ -96,7 +103,7 @@ out:
 
 static esp_err_t rmt_del_jetpoint_encoder(rmt_encoder_t *encoder)
 {
-    rmt_jetpoint_encoder_t *enc = __containerof(encoder, rmt_jetpoint_encoder_t, base);
+    rmt_jetpoint_encoder *enc = __containerof(encoder, rmt_jetpoint_encoder, base);
     rmt_del_encoder(enc->copy_encoder);
     rmt_del_encoder(enc->bytes_encoder);
     free(enc);
@@ -105,7 +112,7 @@ static esp_err_t rmt_del_jetpoint_encoder(rmt_encoder_t *encoder)
 
 static esp_err_t rmt_reset_jetpoint_encoder(rmt_encoder_t *encoder)
 {
-    rmt_jetpoint_encoder_t *enc = __containerof(encoder, rmt_jetpoint_encoder_t, base);
+    rmt_jetpoint_encoder *enc = __containerof(encoder, rmt_jetpoint_encoder, base);
     rmt_encoder_reset(enc->copy_encoder);
     rmt_encoder_reset(enc->bytes_encoder);
     enc->state = RMT_ENCODING_RESET;
@@ -115,8 +122,8 @@ static esp_err_t rmt_reset_jetpoint_encoder(rmt_encoder_t *encoder)
 esp_err_t rmt_new_jetpoint_encoder(rmt_encoder_handle_t *ret_encoder){
 
     esp_err_t ret = ESP_OK;
-    rmt_jetpoint_encoder_t *encoder = NULL;
-    encoder = rmt_alloc_encoder_mem(sizeof(rmt_jetpoint_encoder_t));
+    rmt_jetpoint_encoder *encoder = NULL;
+    encoder = rmt_alloc_encoder_mem(sizeof(rmt_jetpoint_encoder));
     
     encoder->base.encode = rmt_encode_jetpoint;
     encoder->base.del = rmt_del_jetpoint_encoder;

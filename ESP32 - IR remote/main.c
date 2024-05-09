@@ -33,10 +33,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // sync esp time
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
 
     wifi_connect_sta();
+
+    setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1); // israel
+    tzset();
 
     xTaskCreate(ir_http_server_task, "http_server", 4096, NULL, 5, NULL);
 

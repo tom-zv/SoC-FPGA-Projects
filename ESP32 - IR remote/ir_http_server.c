@@ -9,9 +9,12 @@
 #include "wifi.h"
 #include "http_file_ops.h"
 #include "ir_http_server.h"
+#include "uri_handlers.h"
 
-#define SERVER_PORT 80
-#define HTTP_DATE_SIZE 30 //Enough to hold "Day, DD Mon YYYY HH:MM:SS GMT"
+#define DEBUG_HTTPS_CONNECTION false
+#define SERVER_PORT_HTTP 8080
+#define SERVER_PORT_HTTPS 8443
+#define HTTP_DATE_SIZE 30 // Enough to hold "Day, DD Mon YYYY HH:MM:SS GMT"
 
 #define GPIO_IR_TX   27
 #define MEM_BLOCK_SYMBOLS 128
@@ -21,9 +24,7 @@
 
 static const char *TAG = "IR receiver http server";
 
-
 const char* get_http_date(){
-    
     static char http_date[HTTP_DATE_SIZE]; // Static buffer to hold the date
     static time_t last_sync_time = -1;
 
@@ -38,7 +39,7 @@ const char* get_http_date(){
         int retry = 0;
         int retry_count = 4;
 
-        while (esp_netif_sntp_sync_wait(5000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count)
+        while (esp_netif_sntp_sync_wait(10000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count)
         {
             ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
         }
@@ -54,209 +55,50 @@ const char* get_http_date(){
     return http_date;
 }
 
-esp_err_t root_get_handler(httpd_req_t *req)
-{   
-    httpd_resp_set_hdr(req, "Date", get_http_date());
-    resp_send_file(req, "index.html");
-
-    return ESP_OK;
-}
-
-esp_err_t listdir_get_handler(httpd_req_t *req){
-    
-    resp_listdir(req, FS_BASE_PATH); //spiffs doesnt support dirs, list mount dir
-    return ESP_OK;
-}
-
-esp_err_t set_post_handler(httpd_req_t *req){
-
-    server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
-
-    char *content = malloc(req->content_len + 1); 
-    if (!content) {
-        ESP_LOGE(TAG, "Failed to allocate memory for content");
-        return ESP_ERR_NO_MEM;
-    }
-  
-    int received = httpd_req_recv(req, content, req->content_len);
-    if (received <= 0) {  
-        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-            ESP_LOGE(TAG, "HTTP RECV TIMEOUT");
-            httpd_resp_send_408(req);
-        }
-        return ESP_FAIL;
-    }
-    content[received] = '\0';
-
-    //httpd_resp_send(req, content, received); //echo
-
-    int power, mode, fan, temperature, swing, sleep;
-
-    if (sscanf(content, "power=%d&mode=%d&fan=%d&temperature=%d&swing=%d&sleep=%d", // Data sent must be in this default html-form format.
-               &power, &mode, &fan, &temperature, &swing, &sleep) != 6){
-
-        ESP_LOGI(TAG, "Incorrect ir_settings format");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "<span style=\"color:blue;\">power=</span>"
-                                                        "<span style=\"color:red;\">%d</span>"
-                                                        "<span style=\"color:blue;\">&mode=</span>"
-                                                        "<span style=\"color:red;\">%d</span>"
-                                                        "<span style=\"color:blue;\">&fan=</span>"
-                                                        "<span style=\"color:red;\">%d</span>"
-                                                        "<span style=\"color:blue;\">&temperature=</span>"
-                                                        "<span style=\"color:red;\">%d</span>"
-                                                        "<span style=\"color:blue;\">&swing=</span>"
-                                                        "<span style=\"color:red;\">%d</span>"
-                                                        "<span style=\"color:blue;\">&sleep=</span>"
-                                                        "<span style=\"color:red;\">/%d</span>\r\n"
-                                                        "<script>setTimeout(function(){ window.location.href = '/form'; }, 5000);</script>"
-                                                        "<p>You will be redirected in 5 seconds. If not, click <a href=\"/form\">here</a>.</p>");
-
-        free(content);
-        return ESP_OK;
-    }
-
-    set_jetpoint_settings(server_ctx->ir_settings, power, mode, fan, temperature, swing, sleep);
-    ESP_LOGI(TAG, "Settings applied: power=%d, mode=%d, fan=%d, temp=%d, swing=%d, sleep=%d\n",
-                 server_ctx->ir_settings->power, server_ctx->ir_settings->mode, server_ctx->ir_settings->fan, 
-                 server_ctx->ir_settings->temperature + 16, server_ctx->ir_settings->swing, server_ctx->ir_settings->sleep);
-
-    ESP_ERROR_CHECK(rmt_transmit(*server_ctx->tx_channel, *server_ctx->ir_encoder, server_ctx->ir_settings, sizeof(*server_ctx->ir_settings), server_ctx->tx_config));
-    ESP_ERROR_CHECK(rmt_tx_wait_all_done(*server_ctx->tx_channel, portMAX_DELAY));
-
-    httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "/");
-    httpd_resp_send(req, NULL, 0);
-
-    free(content);
-    return ESP_OK;
-}
-
-esp_err_t update_post_handler(httpd_req_t *req){
-
-    server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
-
-    char content[16];  
-    int received = httpd_req_recv(req, content, sizeof(content) - 1);
-    if (received <= 0) {  // Check if there is an error or if the connection was closed
-        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-            httpd_resp_send_408(req);
-        }
-        return ESP_FAIL;
-    }
-    content[received] = '\0';
-
-    if(!strncmp(content, "POWER", sizeof("POWER") - 1)){
-        server_ctx->ir_settings->power = !server_ctx->ir_settings->power;
-    }
-    else if(!strncmp(content, "SWING", sizeof("SWING") - 1)){
-        server_ctx->ir_settings->swing = !server_ctx->ir_settings->swing;
-    }
-    else if (!strncmp(content, "TEMP_UP", sizeof("TEMP_UP") - 1))
-    {
-        if(server_ctx->ir_settings->temperature < 14){
-            server_ctx->ir_settings->temperature++;
-        }
-    }
-    else if (!strncmp(content, "TEMP_DOWN", sizeof("TEMP_DOWN") - 1))
-    {
-        if(server_ctx->ir_settings->temperature > 0){
-            server_ctx->ir_settings->temperature--;
-        }
-    }
-    else if (!strncmp(content, "FAN_UP", sizeof("FAN_UP") - 1))
-    {
-        if(server_ctx->ir_settings->fan < 4){
-            server_ctx->ir_settings->fan++;
-        }
-    }
-    else if (!strncmp(content, "FAN_DOWN", sizeof("FAN_DOWN" - 1)))
-    {
-        if(server_ctx->ir_settings->fan > 0){
-            server_ctx->ir_settings->fan--;
-        }
-    }
-    else if (!strncmp(content, "COOL", sizeof("COOL" - 1)))
-    {
-        server_ctx->ir_settings->mode = 1;
-    }
-    else if (!strncmp(content, "HEAT", sizeof("HEAT") - 1))
-    {
-        server_ctx->ir_settings->mode = 2;
-    }
-    else if(!strncmp(content, "AUTO", sizeof("AUTO") - 1)){
-        server_ctx->ir_settings->mode = 3;
-    }
-    else if(!strncmp(content, "DRY", sizeof("DRY") - 1)){
-        server_ctx->ir_settings->mode = 4;
-    }
-    else if(!strncmp(content, "FAN", sizeof("FAN") - 1)){
-        server_ctx->ir_settings->mode = 5;
-    }
-
-    // Send new settings to AC
-    ESP_ERROR_CHECK(rmt_transmit(*server_ctx->tx_channel, *server_ctx->ir_encoder, server_ctx->ir_settings, sizeof(*server_ctx->ir_settings), server_ctx->tx_config));
-    ESP_ERROR_CHECK(rmt_tx_wait_all_done(*server_ctx->tx_channel, portMAX_DELAY));
-
-    httpd_resp_send(req, NULL, 0);
-
-    return ESP_OK;
-}
-
-esp_err_t settings_get_handler(httpd_req_t *req){
-
-    server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
-    httpd_resp_set_hdr(req, "Date", get_http_date());
-    char settings_json[128];
-    snprintf(settings_json, sizeof(settings_json), "{\"power\":%d, \"mode\": %d, \"fan\": %d, \"temp\": %d, \"swing\": %d, \"sleep\": %d}",
-             server_ctx->ir_settings->power, server_ctx->ir_settings->mode, server_ctx->ir_settings->fan, server_ctx->ir_settings->temperature + 16, server_ctx->ir_settings->swing, server_ctx->ir_settings->sleep);
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, settings_json, strlen(settings_json));
-    return ESP_OK;
-}
-
-esp_err_t upload_post_handler(httpd_req_t *req){
-
-    httpd_resp_set_hdr(req, "Date", get_http_date());
-    upload_file(req);
-    return ESP_OK;
-}
-
-esp_err_t common_get_handler(httpd_req_t *req){
-    httpd_resp_set_hdr(req, "Date", get_http_date());
-    resp_send_file(req, req->uri + 1); // skip the leading '/'
-    return ESP_OK;
-}
-
-esp_err_t setup_server_context(server_context_t* server_context){
+esp_err_t initialize_tx_component(tx_context* tx_ctx) {
 
     rmt_tx_channel_config_t tx_chan_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
         .gpio_num = GPIO_IR_TX,
         .mem_block_symbols = MEM_BLOCK_SYMBOLS,
         .resolution_hz = CHANNEL_RESOLUTION,
-        .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
+        .trans_queue_depth = 4,
     };
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, tx_ctx->tx_channel));
+    ESP_ERROR_CHECK(rmt_new_jetpoint_encoder(tx_ctx->ir_encoder));
 
-    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, server_context->tx_channel));
+    set_jetpoint_settings(tx_ctx->ir_settings, 0, 1, 1, 25, 0, 0);
+    tx_ctx->tx_config->loop_count = 0;
 
     rmt_carrier_config_t carrier_cfg = {
         .duty_cycle = CHANNEL_DC,
         .frequency_hz = CARRIER_FREQ,
     };
 
-    ESP_ERROR_CHECK(rmt_apply_carrier(*server_context->tx_channel, &carrier_cfg));
-    ESP_ERROR_CHECK(rmt_enable(*server_context->tx_channel));
-
-    set_jetpoint_settings(server_context->ir_settings, 1, 1, 1, 25, 0, 0);
-    ESP_ERROR_CHECK(rmt_new_jetpoint_encoder(server_context->ir_encoder));
-
-    server_context->tx_config->loop_count = 0;
+    ESP_ERROR_CHECK(rmt_apply_carrier(*tx_ctx->tx_channel, &carrier_cfg));
+    rmt_enable(*tx_ctx->tx_channel);
 
     return ESP_OK;
 }
 
+esp_err_t setup_server_context(server_context* server_ctx) {
+    
+    initialize_tx_components(server_ctx->tx_ctx);
+
+    // Allocate shared resources
+    char* file_buf = malloc(FILE_BUF_SIZE);
+    if (!file_buf) {
+        ESP_LOGE(TAG, "Failed to allocate memory for file storage");
+        return ESP_ERR_NO_MEM;
+    }
+    server_ctx->file_buf = file_buf;
+
+    return ESP_OK;
+}
+
+
 #ifdef CONFIG_ESP_TLS_USING_MBEDTLS
+#ifdef DEBUG_HTTPS_CONNECTION
 static void print_peer_cert_info(const mbedtls_ssl_context *ssl)
 {
     const mbedtls_x509_crt *cert;
@@ -278,7 +120,7 @@ static void print_peer_cert_info(const mbedtls_ssl_context *ssl)
 
     free(buf);
 }
-#endif
+
 static void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
 {
     ESP_LOGI(TAG, "User callback invoked!");
@@ -325,112 +167,60 @@ static void https_server_user_callback(esp_https_server_user_cb_arg_t *user_cb)
             return;
     }
 }
+#endif //DEBUG_HTTPS_CONNECTION
+#endif
 
-esp_err_t start_ir_webserver(server_context_t* server_context)
-{
-    // SSL config
-    httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
-    //conf.user_cb = https_server_user_callback; // show https connection info
-    // Load embedded server certificates
+void load_embedded_certs(httpd_ssl_config_t *conf){
     extern const unsigned char servercert_start[] asm("_binary_servercert_pem_start");
     extern const unsigned char servercert_end[]   asm("_binary_servercert_pem_end");
-    conf.servercert = servercert_start;
-    conf.servercert_len = servercert_end - servercert_start;
+    conf->servercert = servercert_start;
+    conf->servercert_len = servercert_end - servercert_start;
 
     extern const unsigned char prvtkey_pem_start[] asm("_binary_prvtkey_pem_start");
     extern const unsigned char prvtkey_pem_end[]   asm("_binary_prvtkey_pem_end");
-    conf.prvtkey_pem = prvtkey_pem_start;
-    conf.prvtkey_len = prvtkey_pem_end - prvtkey_pem_start;
+    conf->prvtkey_pem = prvtkey_pem_start;
+    conf->prvtkey_len = prvtkey_pem_end - prvtkey_pem_start;
+}
 
-    conf.httpd.lru_purge_enable = true;
-    conf.httpd.server_port = SERVER_PORT;
-    conf.httpd.max_uri_handlers = 10;
-    conf.httpd.uri_match_fn = httpd_uri_match_wildcard;
-    
-    conf.port_secure = 6230;
-    
-    char* file_buf = malloc(FILE_BUF_SIZE); 
-    if (!file_buf) {
-        ESP_LOGE(TAG, "Failed to allocate memory for file storage");
-        return ESP_ERR_NO_MEM;
-    }
+esp_err_t configure_ssl(httpd_ssl_config_t* conf) {
+    load_embedded_certs(conf);
+    conf->httpd.lru_purge_enable = true;
+    conf->port_secure = SERVER_PORT_HTTPS;
+    conf->httpd.max_uri_handlers = 10;
+    conf->httpd.uri_match_fn = httpd_uri_match_wildcard;
+    return ESP_OK;
+}
 
-    server_context->file_buf = file_buf;
-    conf.httpd.global_user_ctx = server_context;
+esp_err_t start_ir_webserver(server_context* server_ctx) {
+    httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
+    configure_ssl(&conf);
 
-    // uri handlers
-    httpd_uri_t uri_root = {
-        .uri = "/",
-        .method = HTTP_GET,
-        .handler = root_get_handler,
-    };
-    httpd_uri_t set = {
-        .uri = "/set",
-        .method = HTTP_POST,
-        .handler = set_post_handler,
-    };
-    httpd_uri_t update = {
-        .uri = "/update",
-        .method = HTTP_POST,
-        .handler = update_post_handler,
-    };
-    httpd_uri_t list_dir = {
-        .uri = "/listdir",
-        .method = HTTP_GET,
-        .handler = listdir_get_handler,
-    };
-    httpd_uri_t settings = {
-        .uri = "/ac_settings",
-        .method = HTTP_GET,
-        .handler = settings_get_handler,
-    };
-    httpd_uri_t upload = {
-        .uri = "/upload/*",
-        .method = HTTP_POST,
-        .handler = upload_post_handler,
-    };
-    httpd_uri_t common_get_request = {
-    .uri = "/*", 
-    .method = HTTP_GET,
-    .handler = common_get_handler,
-    };
+    ESP_LOGI(TAG, "Starting server on port: '%d'", conf.port_secure);
+    esp_err_t ret = httpd_ssl_start(server_ctx->server, &conf);
 
-    ESP_LOGI(TAG, "Starting server on port: '%d'", conf.httpd.server_port);
-
-    esp_err_t ret = httpd_ssl_start(server_context->server, &conf);
-
-    if(ret == ESP_OK){
-        //ESP_LOGI(TAG, "Server started successfuly");
-        httpd_register_uri_handler(*server_context->server, &uri_root);
-        httpd_register_uri_handler(*server_context->server, &set);
-        httpd_register_uri_handler(*server_context->server, &update);
-        httpd_register_uri_handler(*server_context->server, &list_dir);
-        httpd_register_uri_handler(*server_context->server, &settings);
-        httpd_register_uri_handler(*server_context->server, &upload);
-        httpd_register_uri_handler(*server_context->server, &common_get_request);
-    }
-    else
-    {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start server: %s", esp_err_to_name(ret));
-        free(file_buf); 
-        server_context->file_buf = NULL;
+        free(server_ctx->file_buf);
+        server_ctx->file_buf = NULL;
         return ESP_FAIL;
     }
     return ESP_OK;
 }
 
-esp_err_t stop_ir_webserver(server_context_t* server_context)
-{
-    free(server_context->file_buf);
-    rmt_disable(*server_context->tx_channel);
-    rmt_del_channel(*server_context->tx_channel);
-    return httpd_stop(*server_context->server);
+esp_err_t stop_ir_webserver(server_context* server_ctx)
+{   
+    tx_context* tx_ctx = server_ctx->tx_ctx;
+
+    free(server_ctx->file_buf);
+    rmt_disable(*tx_ctx->tx_channel);
+    rmt_del_channel(*tx_ctx->tx_channel);
+    return httpd_stop(*server_ctx->server);
 }
 
 void disconnect_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data)
 {
-    server_context_t* server_ctx = (server_context_t*) arg;
+    server_context* server_ctx = (server_context*) arg;
     if (!server_ctx->server) {
         ESP_LOGI(TAG, "Stopping webserver");
         if (stop_ir_webserver(server_ctx) == ESP_OK) {
@@ -443,7 +233,7 @@ void disconnect_handler(void* arg, esp_event_base_t event_base,
 void connect_handler(void* arg, esp_event_base_t event_base,
                             int32_t event_id, void* event_data)
 {
-    server_context_t *server_ctx = (server_context_t *)arg;
+    server_context *server_ctx = (server_context *)arg;
 
     if (server_ctx->server == NULL) {
         ESP_LOGI(TAG, "Starting webserver");
@@ -452,35 +242,37 @@ void connect_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-void ir_http_server_task(void* pvParameters)
-{   
+void ir_http_server_task(void *pvParameters)
+{
     httpd_handle_t server = NULL;
-    rmt_channel_handle_t tx_channel = NULL;
-    rmt_transmit_config_t tx_config = {0}; 
-    ir_jetpoint_settings_t settings = {0};
-    rmt_encoder_handle_t jetpoint_encoder = NULL;
+    tx_context tx_ctx = {
+        .tx_channel = NULL,
+        .tx_config = NULL,
+        .ir_encoder = NULL,
+        .ir_settings = NULL,
+    };
     
-    server_context_t server_context = {
+    server_context server_ctx = {
         .server = &server,
+        .tx_ctx = &tx_ctx,
+        
         .file_buf = NULL,
-        .tx_channel = &tx_channel,
-        .tx_config = &tx_config,
-        .ir_encoder = &jetpoint_encoder,
-        .ir_settings = &settings,
     };
 
+    if (setup_server_context(&server_ctx) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to setup server context");
+        vTaskDelete(NULL);
+    }
+
+    start_ir_webserver(&server_ctx);
+    register_disconnect_handlers((void *)&server_ctx);
     mount_spiffs_storage();
 
-    if(setup_server_context(&server_context) != ESP_OK){
-        ESP_LOGE(TAG, "Failed to setup server context");
-        return;
+    while (1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(5 * 1000));
     }
 
-    register_connect_disconnect_handlers((void *)&server_context);
-    start_ir_webserver(&server_context);
-
-    while(1){
-        vTaskDelay(pdMS_TO_TICKS(5*1000));
-    }
-    stop_ir_webserver(&server_context);
+    stop_ir_webserver(&server_ctx);
 }

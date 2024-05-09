@@ -81,18 +81,18 @@ esp_err_t resp_send_file(httpd_req_t *req, const char *filename){
         return ESP_FAIL;
     }
 
-    server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
+    char* file_buf = (char*) req->user_ctx;
 
     set_content_type_from_file(req, filename);
     size_t read_size;
     if(file_stat.st_size <= MAX_FILE_SIZE){
-        read_size = fread(server_ctx->file_buf, 1, file_stat.st_size, fd);
-        httpd_resp_send(req, server_ctx->file_buf, read_size);
+        read_size = fread(file_buf, 1, file_stat.st_size, fd);
+        httpd_resp_send(req, file_buf, read_size);
     }
     else{
-        while ((read_size = fread(server_ctx->file_buf, 1, FILE_BUF_SIZE, fd)) > 0)
+        while ((read_size = fread(file_buf, 1, FILE_BUF_SIZE, fd)) > 0)
         {
-            httpd_resp_send_chunk(req, server_ctx->file_buf, read_size);
+            httpd_resp_send_chunk(req, file_buf, read_size);
         }
         httpd_resp_send_chunk(req, NULL, 0); // End of chunks
     }
@@ -176,14 +176,14 @@ esp_err_t upload_file(httpd_req_t *req){
         return ESP_FAIL;
     }
 
-    server_context_t* server_ctx = (server_context_t*) httpd_get_global_user_ctx(req->handle);
+    char* file_buf = (char*) req->user_ctx;
 
     size_t received = 0;
     size_t remaining = req->content_len;
 
     while (remaining > 0) {
         // Receive chunk from content body
-        if((received = httpd_req_recv(req, server_ctx->file_buf, FILE_BUF_SIZE)) <= 0){
+        if((received = httpd_req_recv(req, file_buf, FILE_BUF_SIZE)) <= 0){
             if (received == HTTPD_SOCK_ERR_TIMEOUT) {
                 /* Retry on timeout */
                 continue;
@@ -197,7 +197,7 @@ esp_err_t upload_file(httpd_req_t *req){
         }
 
         // write received data to file
-        if (received && (received != fwrite(server_ctx->file_buf, 1, received, fd))) {
+        if (received && (received != fwrite(file_buf, 1, received, fd))) {
             // Couldn't write everything to file 
             fclose(fd);
             unlink(filepath);
