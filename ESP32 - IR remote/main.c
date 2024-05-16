@@ -33,13 +33,15 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
-
+    //ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
+    esp_log_level_set("wifi", ESP_LOG_WARN);
     wifi_connect_sta();
 
-    setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1); // israel
+    setenv("TZ", "IST-2IDT,M3.4.4/26,M10.5.0", 1); // israel
     tzset();
 
+    sntp_sync();
+    
     xTaskCreate(ir_http_server_task, "http_server", 4096, NULL, 5, NULL);
 
     while(1){ // wifi busy loop

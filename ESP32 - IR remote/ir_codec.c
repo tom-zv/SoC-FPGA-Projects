@@ -25,6 +25,7 @@ esp_err_t transmit_ir(rmt_channel_handle_t *tx_channel, rmt_encoder_handle_t *ir
     return ESP_OK;
 }
 
+
 void set_jetpoint_settings(ir_jetpoint_settings *settings, bool power, uint8_t mode, uint8_t fan, uint8_t temperature, bool swing, bool sleep)
 {
     settings->power = power ? 1 : 0;

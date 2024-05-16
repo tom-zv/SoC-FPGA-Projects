@@ -81,7 +81,7 @@ esp_err_t resp_send_file(httpd_req_t *req, const char *filename){
         return ESP_FAIL;
     }
 
-    char* file_buf = (char*) req->user_ctx;
+    char* file_buf = (char*)req->user_ctx;
 
     set_content_type_from_file(req, filename);
     size_t read_size;

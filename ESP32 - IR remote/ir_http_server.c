@@ -9,6 +9,7 @@
 #include "wifi.h"
 #include "http_file_ops.h"
 #include "ir_http_server.h"
+#include "server_schedule.h"
 #include "uri_handlers.h"
 
 #define DEBUG_HTTPS_CONNECTION false
@@ -24,30 +25,33 @@
 
 static const char *TAG = "IR receiver http server";
 
+esp_err_t sntp_sync(){
+
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_netif_sntp_init(&config);
+
+    int retry = 0;
+    int retry_count = 4;
+
+    while (esp_netif_sntp_sync_wait(10000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count)
+    {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+    }
+
+    esp_netif_sntp_deinit();
+    return ESP_OK;
+}
 const char* get_http_date(){
     static char http_date[HTTP_DATE_SIZE]; // Static buffer to hold the date
-    static time_t last_sync_time = -1;
+    static time_t last_sync_time = 0; // sync on first run
 
     time_t now = time(NULL);
+    
         
     if(now - last_sync_time >= 24 * 60 * 60) {
+
         last_sync_time = now;
-
-        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-        esp_netif_sntp_init(&config);
-
-        int retry = 0;
-        int retry_count = 4;
-
-        while (esp_netif_sntp_sync_wait(10000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count)
-        {
-            ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        }
-
-        now = time(NULL);
-        last_sync_time = now;
-
-        esp_netif_sntp_deinit();
+        sntp_sync();
     }
 
     struct tm *gm_tm = gmtime(&now);
@@ -56,7 +60,7 @@ const char* get_http_date(){
 }
 
 esp_err_t initialize_tx_component(tx_context* tx_ctx) {
-
+    
     rmt_tx_channel_config_t tx_chan_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
         .gpio_num = GPIO_IR_TX,
@@ -83,15 +87,17 @@ esp_err_t initialize_tx_component(tx_context* tx_ctx) {
 
 esp_err_t setup_server_context(server_context* server_ctx) {
     
-    initialize_tx_components(server_ctx->tx_ctx);
+    initialize_tx_component(server_ctx->tx_ctx);
 
     // Allocate shared resources
     char* file_buf = malloc(FILE_BUF_SIZE);
-    if (!file_buf) {
+    char* schedule_buf = malloc(SCHEDULE_BUF_SIZE);
+    if (!file_buf ) {
         ESP_LOGE(TAG, "Failed to allocate memory for file storage");
         return ESP_ERR_NO_MEM;
     }
     server_ctx->file_buf = file_buf;
+    server_ctx->scheduler_ctx->schedule_data = schedule_buf;
 
     return ESP_OK;
 }
@@ -204,6 +210,8 @@ esp_err_t start_ir_webserver(server_context* server_ctx) {
         server_ctx->file_buf = NULL;
         return ESP_FAIL;
     }
+    register_uri_handlers(server_ctx);
+    
     return ESP_OK;
 }
 
@@ -212,6 +220,7 @@ esp_err_t stop_ir_webserver(server_context* server_ctx)
     tx_context* tx_ctx = server_ctx->tx_ctx;
 
     free(server_ctx->file_buf);
+    free(server_ctx->scheduler_ctx->schedule_data);
     rmt_disable(*tx_ctx->tx_channel);
     rmt_del_channel(*tx_ctx->tx_channel);
     return httpd_stop(*server_ctx->server);
@@ -245,17 +254,30 @@ void connect_handler(void* arg, esp_event_base_t event_base,
 void ir_http_server_task(void *pvParameters)
 {
     httpd_handle_t server = NULL;
+    rmt_channel_handle_t tx_channel = {0};
+    rmt_transmit_config_t tx_config = {0};
+    rmt_encoder_handle_t ir_encoder = {0};
+    ir_jetpoint_settings ir_settings = {0};
     tx_context tx_ctx = {
-        .tx_channel = NULL,
-        .tx_config = NULL,
-        .ir_encoder = NULL,
-        .ir_settings = NULL,
+        .tx_channel = &tx_channel,
+        .tx_config = &tx_config,
+        .ir_encoder = &ir_encoder,
+        .ir_settings = &ir_settings,
+    };
+    
+    TaskHandle_t scheduler_task;
+    SemaphoreHandle_t sched_data_sem = xSemaphoreCreateBinary();
+    xSemaphoreGive(sched_data_sem);
+    
+    ac_scheduler_context scheduler_ctx = {
+        .schedule_uri_bSemaphore = &sched_data_sem,
+        .schedule_data = NULL,
     };
     
     server_context server_ctx = {
         .server = &server,
         .tx_ctx = &tx_ctx,
-        
+        .scheduler_ctx = &scheduler_ctx,
         .file_buf = NULL,
     };
 
@@ -266,7 +288,9 @@ void ir_http_server_task(void *pvParameters)
     }
 
     start_ir_webserver(&server_ctx);
-    register_disconnect_handlers((void *)&server_ctx);
+    register_connect_disconnect_handlers((void *)&server_ctx);
+    xTaskCreate(ac_scheduler_task, "ac_scheduler", 4096, (void*)&server_ctx, 5, &scheduler_task);
+    scheduler_ctx.scheduler_task = scheduler_task;
     mount_spiffs_storage();
 
     while (1)

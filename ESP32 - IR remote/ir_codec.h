@@ -10,15 +10,6 @@
 #define MAX_DATA_SYMBOL_BIT_LEN 4 // Biggest data symbol is the trailing, 4000us MARK 
                                   //                                      '1111' after decoding to bits
 
-
-typedef struct
-{ // context needed for IR TX
-    rmt_channel_handle_t *tx_channel;
-    rmt_transmit_config_t *tx_config;
-    rmt_encoder_handle_t *ir_encoder;
-    ir_jetpoint_settings *ir_settings;
-} tx_context;
-
 typedef union ir_jetpoint_settings
 {
     struct // Data sent with 'power' going first
@@ -39,7 +30,15 @@ typedef union ir_jetpoint_settings
     };
     uint64_t raw;
 
-} ir_jetpoint_settings;
+}ir_jetpoint_settings;
+
+typedef struct
+{ // context needed for IR TX
+    rmt_channel_handle_t *tx_channel;
+    rmt_transmit_config_t *tx_config;
+    rmt_encoder_handle_t *ir_encoder;
+    ir_jetpoint_settings *ir_settings;
+} tx_context;
 
 esp_err_t rmt_new_jetpoint_encoder(rmt_encoder_handle_t *ret_encoder);
 

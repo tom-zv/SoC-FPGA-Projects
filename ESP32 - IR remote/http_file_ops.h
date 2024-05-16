@@ -2,6 +2,7 @@
 #define HTTP_FILE_OPS_H
 
 #include "esp_err.h"
+#include <esp_https_server.h>
 
 #define FS_BASE_PATH "/irserver"
 #define FILE_BUF_SIZE  8192
