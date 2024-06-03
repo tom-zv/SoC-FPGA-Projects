@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', fetchSettings);
 
 window.onload = function() {
-    document.body.style.display = "flex"; // Change "block" to whatever display type you originally need, like "flex" or "grid"
+    document.body.style.display = "flex";
 };
 
 function fetchSettings() {
