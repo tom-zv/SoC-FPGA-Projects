@@ -5,7 +5,6 @@
 #include "ir_http_server.h"
 #include "server_schedule.h"
 
-
 static const char* TAG = "schedule manager";
 
 const char* state_name(uint32_t state){
@@ -120,6 +119,21 @@ int delay_to_nearest_schedule_ms(schedule_manager *smanager)
 
     //ESP_LOGI(TAG, "nearest schedule: index %d, wday %d, delay %d", nearest_sched_index, nearest_sched_wday, time_delay_ms);
     return time_delay_ms;
+}
+
+//calculate delay to wakeup & returns wakeup state
+uint32_t config_wakeup(schedule_manager *smanager, TimerHandle_t schedule_timer){
+    uint32_t scheduler_state = NOP;
+    int delay_ms = delay_to_nearest_schedule_ms(smanager);
+    
+    if (delay_ms > 0) {
+        xTimerChangePeriod(schedule_timer, pdMS_TO_TICKS(delay_ms), portMAX_DELAY);
+        
+        if(smanager->schedule_active) scheduler_state = AC_OFF;
+        else scheduler_state = AC_ON;
+    }
+    
+    return scheduler_state;
 }
 
 // stores int representation of index in ind, returns the length of the index
@@ -255,10 +269,11 @@ void ac_scheduler_task(void* pvParams){
                 
                 tx_ctx->ir_settings->power = 0;
             }
-            scheduler_state = AC_OFF; // turn off AC on next wake-up
+
+            
             schedule_manager.schedule_active = 1;
-            delay_ms = delay_to_nearest_schedule_ms(&schedule_manager);
-            xTimerChangePeriod(schedule_timer, pdMS_TO_TICKS(delay_ms), portMAX_DELAY);
+            scheduler_state = config_wakeup(&schedule_manager, schedule_timer);
+
         break;
 
         case AC_OFF:
@@ -273,10 +288,7 @@ void ac_scheduler_task(void* pvParams){
                 else ESP_LOGI(TAG, "Failed to transmit IR!");
                 
                 schedule_manager.schedule_active = 0;
-                delay_ms = delay_to_nearest_schedule_ms(&schedule_manager);
-
-                if (delay_ms != -1) xTimerChangePeriod(schedule_timer, pdMS_TO_TICKS(delay_ms), portMAX_DELAY);
-                else scheduler_state = NOP; // no schedule, sleep until schedule update.
+                scheduler_state = config_wakeup(&schedule_manager, schedule_timer);
             }
         break;
         
@@ -315,10 +327,28 @@ void ac_scheduler_task(void* pvParams){
             xTaskNotify(schedule_ctx->active_uri_handler, uri_err_notification, eSetValueWithOverwrite);
             xSemaphoreGive(*schedule_ctx->schedule_uri_bSemaphore);
 
-            delay_ms = delay_to_nearest_schedule_ms(&schedule_manager);
-            if(xTimerChangePeriod(schedule_timer, pdMS_TO_TICKS(delay_ms), portMAX_DELAY) != pdPASS) ESP_LOGI(TAG, "timer change period failed");
-            if(schedule_manager.schedule_active) scheduler_state = AC_OFF;
-            else scheduler_state = AC_ON;
+            scheduler_state = config_wakeup(&schedule_manager, schedule_timer);
+
+        break;
+
+        case EVENT_SCHED_TOGGLE:
+            ESP_LOGI(TAG, "toggling schedule");
+            index_len = parse_index(schedule_ctx->schedule_data, &sched_index);
+
+            if (index_len > 0 )
+            {
+                if (schedule_manager.entries[sched_index].is_valid == 1)
+                {
+                    schedule_manager.entries[sched_index].is_on = !schedule_manager.entries[sched_index].is_on;
+                }
+                else uri_err_notification = ERR_INVALID_ENTRY;
+            }
+            else uri_err_notification = ERR_WRONG_FORMAT;
+
+            xTaskNotify(schedule_ctx->active_uri_handler, uri_err_notification, eSetValueWithOverwrite);
+            xSemaphoreGive(*schedule_ctx->schedule_uri_bSemaphore);
+
+            scheduler_state = config_wakeup(&schedule_manager, schedule_timer);
         break;
 
         case EVENT_SCHED_DEL: //  
@@ -326,6 +356,7 @@ void ac_scheduler_task(void* pvParams){
             
             if (index_len > 0)
             {
+                schedule_manager.entries[sched_index].is_valid = 0;
                 int next_index = sched_index + 1; 
                 while (next_index < MAX_SCHEDULE_ENTRIES && schedule_manager.entries[next_index].is_valid == 1) // compact the table
                 {
@@ -340,8 +371,7 @@ void ac_scheduler_task(void* pvParams){
             xTaskNotify(schedule_ctx->active_uri_handler, uri_err_notification, eSetValueWithOverwrite);
             xSemaphoreGive(*schedule_ctx->schedule_uri_bSemaphore);
 
-            delay_ms = delay_to_nearest_schedule_ms(&schedule_manager);
-            xTimerChangePeriod(schedule_timer, pdMS_TO_TICKS(delay_ms), portMAX_DELAY);
+            scheduler_state = config_wakeup(&schedule_manager, schedule_timer);
         break;
 
         default:

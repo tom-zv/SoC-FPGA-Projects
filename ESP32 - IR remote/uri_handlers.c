@@ -1,9 +1,86 @@
 #include <cJSON.h>
+#include <ctype.h>
 #include "esp_log.h"
+#include "esp_https_server.h"
+#include "esp_netif.h"
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "uri_handlers.h"
 #include "server_schedule.h"
 
+#define MAX_COMMAND_LEN 16
 const static char* TAG = "uri handlers";
+
+#define MAX_TEMP_VAL 14 // temp is offset by 16, and max is 14 (+16 = 30C)
+#define MIN_TEMP_VAL 0
+#define MAX_FAN_VAL 3
+#define MIN_FAN_VAL 0
+
+void request_info(httpd_req_t *req){
+ESP_LOGI(TAG, "Received request: %s %s", http_method_str(req->method), req->uri);
+
+    // Log the Host header if present
+    char info[256];
+    if (httpd_req_get_hdr_value_str(req, "Host", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "Host: %s", info);
+    } else {
+        ESP_LOGI(TAG, "Host header not found");
+    }
+
+    // Log the User-Agent header if present
+    
+    if (httpd_req_get_hdr_value_str(req, "User-Agent", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "User-Agent: %s", info);
+    } else {
+        ESP_LOGI(TAG, "User-Agent header not found");
+    }
+
+    if (httpd_req_get_hdr_value_str(req, "X-Forwarded-For", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "X-Forwarded-For: %s", info);
+    } else {
+        ESP_LOGI(TAG, "X-Forwarded-For header not found");
+    }
+
+    if (httpd_req_get_hdr_value_str(req, "X-Forwarded-Host", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "X-Forwarded-Host: %s", info);
+    } else {
+        ESP_LOGI(TAG, "X-Forwarded-Host header not found");
+    }
+
+    if (httpd_req_get_hdr_value_str(req, "X-Forwarded-Port", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "X-Forwarded-Port: %s", info);
+    } else {
+        ESP_LOGI(TAG, "X-Forwarded-Port header not found");
+    }
+
+     if (httpd_req_get_hdr_value_str(req, "referer", info, sizeof(info)) == ESP_OK) {
+        ESP_LOGI(TAG, "referer: %s", info);
+    } else {
+        ESP_LOGI(TAG, "referer header not found");
+    }
+
+}
+
+int parse_command_delta(char *command, char* delta_prefix){
+    size_t prefix_len = strlen(delta_prefix);
+    char delta_char[MAX_COMMAND_LEN] = {0};
+    int delta = 1;
+
+    if(command[prefix_len] == ' '){
+        int i = 0;
+        while(isdigit((unsigned char)command[prefix_len + 1 + i]) && i < MAX_COMMAND_LEN){
+            delta_char[i] = command[prefix_len + 1 + i];
+            i++;
+        }
+        delta_char[i] = '\0';
+        if(i > 0) delta = atoi(delta_char);
+    }
+
+    return delta;
+}
 
 esp_err_t root_get_handler(httpd_req_t *req)
 {   
@@ -41,7 +118,7 @@ esp_err_t schedule_get_handler(httpd_req_t *req){
 
     for (int i = 0; i < MAX_SCHEDULE_ENTRIES; i++)
     {
-        if(schedule_table[i].is_valid == 0) continue;
+        if(schedule_table[i].is_valid == 0) break;
 
         cJSON *entry = cJSON_CreateObject();
 
@@ -58,7 +135,7 @@ esp_err_t schedule_get_handler(httpd_req_t *req){
         cJSON_AddNumberToObject(entry, "minute_off", schedule_table[i].minute_off);
         cJSON_AddNumberToObject(entry, "wdaybitmask", schedule_table[i].days_of_week);
         cJSON_AddBoolToObject(entry, "is_on", schedule_table[i].is_on);
-        cJSON_AddBoolToObject(entry, "index", i);
+        cJSON_AddNumberToObject(entry, "index", i);
     }
 
     char *json_string = cJSON_Print(root);
@@ -74,62 +151,74 @@ esp_err_t update_post_handler(httpd_req_t *req){
 
     tx_context* tx_ctx = (tx_context*)req->user_ctx;
 
-    char content[16];  
-    int received = httpd_req_recv(req, content, sizeof(content) - 1);
+    char command[MAX_COMMAND_LEN];  
+    int received = httpd_req_recv(req, command, sizeof(command) - 1);
+    
     if (received <= 0) {  // Check if there is an error or if the connection was closed
         if (received == HTTPD_SOCK_ERR_TIMEOUT) {
             httpd_resp_send_408(req);
         }
         return ESP_FAIL;
     }
-    content[received] = '\0';
+    command[received] = '\0';
 
-    if(!strncmp(content, "POWER", sizeof("POWER") - 1)){
+    if(!strncmp(command, "POWER", sizeof("POWER") - 1)){
         tx_ctx->ir_settings->power = 1;
+
+        
     }
-    else if(!strncmp(content, "SWING", sizeof("SWING") - 1)){
+    else if(!strncmp(command, "SWING", sizeof("SWING") - 1)){
         tx_ctx->ir_settings->swing = !tx_ctx->ir_settings->swing;
     }
-    else if (!strncmp(content, "TEMP_UP", sizeof("TEMP_UP") - 1))
+    else if (!strncmp(command, "TEMP_UP", sizeof("TEMP_UP") - 1))
     {
-        if(tx_ctx->ir_settings->temperature < 14){
-            tx_ctx->ir_settings->temperature++;
-        }
+        int delta = parse_command_delta(command, "TEMP_UP");
+        
+        int new_temp_val = tx_ctx->ir_settings->temperature + delta;
+        if(new_temp_val > MAX_TEMP_VAL) new_temp_val = MAX_TEMP_VAL; 
+        tx_ctx->ir_settings->temperature = new_temp_val;
+        
     }
-    else if (!strncmp(content, "TEMP_DOWN", sizeof("TEMP_DOWN") - 1))
+    else if (!strncmp(command, "TEMP_DOWN", sizeof("TEMP_DOWN") - 1))
     {
-        if(tx_ctx->ir_settings->temperature > 0){
-            tx_ctx->ir_settings->temperature--;
-        }
+        int delta = parse_command_delta(command, "TEMP_DOWN");
+
+        int new_temp_val = tx_ctx->ir_settings->temperature - delta;
+        if(new_temp_val < MIN_TEMP_VAL) new_temp_val = MIN_TEMP_VAL; 
+        tx_ctx->ir_settings->temperature = new_temp_val;
     }
-    else if (!strncmp(content, "FAN_UP", sizeof("FAN_UP") - 1))
+    else if (!strncmp(command, "FAN_UP", sizeof("FAN_UP") - 1))
     {   
         // overflows to 0 since its a 2-bit field
-        if(tx_ctx->ir_settings->fan < 4){
-            tx_ctx->ir_settings->fan++;
-        }
+        int delta = parse_command_delta(command, "FAN_UP");
+
+        int new_fan_val = tx_ctx->ir_settings->fan + delta;
+        if(new_fan_val > MAX_FAN_VAL) new_fan_val = MAX_FAN_VAL;
+        tx_ctx->ir_settings->fan = new_fan_val;
     }
-    else if (!strncmp(content, "FAN_DOWN", sizeof("FAN_DOWN" - 1)))
+    else if (!strncmp(command, "FAN_DOWN", sizeof("FAN_DOWN" - 1)))
     {
-        if(tx_ctx->ir_settings->fan > 0){
-            tx_ctx->ir_settings->fan--;
-        }
+        int delta = parse_command_delta(command, "FAN_UP");
+
+        int new_fan_val = (tx_ctx->ir_settings->fan > delta) ? (tx_ctx->ir_settings->fan - delta) : 0; // Deals with underflow
+        tx_ctx->ir_settings->fan = new_fan_val;
     }
-    else if (!strncmp(content, "COOL", sizeof("COOL" - 1)))
+    else if (!strncmp(command, "COOL", sizeof("COOL" - 1)))
     {
         tx_ctx->ir_settings->mode = 1;
     }
-    else if (!strncmp(content, "HEAT", sizeof("HEAT") - 1))
+    else if (!strncmp(command, "HEAT", sizeof("HEAT") - 1))
     {
         tx_ctx->ir_settings->mode = 2;
     }
-    else if(!strncmp(content, "AUTO", sizeof("AUTO") - 1)){
+    else if(!strncmp(command, "AUTO", sizeof("AUTO") - 1))
+    {
         tx_ctx->ir_settings->mode = 3;
     }
-    else if(!strncmp(content, "DRY", sizeof("DRY") - 1)){
+    else if(!strncmp(command, "DRY", sizeof("DRY") - 1)){
         tx_ctx->ir_settings->mode = 4;
     }
-    else if(!strncmp(content, "FAN", sizeof("FAN") - 1)){
+    else if(!strncmp(command, "FAN", sizeof("FAN") - 1)){
         tx_ctx->ir_settings->mode = 5;
     }
 
@@ -158,23 +247,31 @@ esp_err_t schedule_post_handler(httpd_req_t *req){
     xSemaphoreTake(*schedule_ctx->schedule_uri_bSemaphore, portMAX_DELAY); // released in scheduler task. protects both data buffer and active uri handler access 
     schedule_ctx->active_uri_handler = xTaskGetCurrentTaskHandle();
 
-    size_t bytes_read = 0;
+    int bytes_read = 0;
     bytes_read = httpd_req_recv(req, schedule_ctx->schedule_data, SCHEDULE_BUF_SIZE);
+    if(bytes_read < 0){
+        ESP_LOGI(TAG, "recv failed");
+        return ESP_FAIL;
+    }
     schedule_ctx->schedule_data[bytes_read] = '\0';
     
     int action;
     if(!strncmp(req->uri, "/schedule/update", sizeof("schedule/update") - 1)){
         action = EVENT_SCHED_UPDATE;
     }
-    else if(!strncmp(req->uri, "/schedule/delete", sizeof("schedule/del") - 1)){
+    else if(!strncmp(req->uri, "/schedule/delete", sizeof("schedule/delete") - 1)){
         action = EVENT_SCHED_DEL;
+    }
+    else if(!strncmp(req->uri, "/schedule/toggle", sizeof("schedule/toggle") - 1)){
+        action = EVENT_SCHED_TOGGLE;
     }
     else{
         httpd_resp_send_404(req); // invalid uri
         return ESP_FAIL;
     }
     
-    ESP_LOGI(TAG, "state changed = %d", action);
+    //ESP_LOGI(TAG, "state changed = %d", action);
+    ESP_LOGI(TAG, "schedule data = %s, waking up scheduler with state = %d", schedule_ctx->schedule_data, action);
     xTaskNotify(schedule_ctx->scheduler_task, action, eSetValueWithOverwrite);
 
     uint32_t sched_err_notification;

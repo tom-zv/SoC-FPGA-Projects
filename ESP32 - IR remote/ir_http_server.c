@@ -12,6 +12,7 @@
 #include "server_schedule.h"
 #include "uri_handlers.h"
 
+#define USE_HTTPS false
 #define DEBUG_HTTPS_CONNECTION false
 #define SERVER_PORT_HTTP 8080
 #define SERVER_PORT_HTTPS 8443
@@ -188,22 +189,43 @@ void load_embedded_certs(httpd_ssl_config_t *conf){
     conf->prvtkey_len = prvtkey_pem_end - prvtkey_pem_start;
 }
 
-esp_err_t configure_ssl(httpd_ssl_config_t* conf) {
+esp_err_t configure_encrypted_server(httpd_ssl_config_t* conf) {
     load_embedded_certs(conf);
     conf->httpd.lru_purge_enable = true;
     conf->port_secure = SERVER_PORT_HTTPS;
+    conf->transport_mode = HTTPD_SSL_TRANSPORT_SECURE;
     conf->httpd.max_uri_handlers = 10;
     conf->httpd.uri_match_fn = httpd_uri_match_wildcard;
+
     return ESP_OK;
 }
 
+esp_err_t config_unencrypted_server(httpd_config_t *conf){
+    conf->lru_purge_enable = true;
+    conf->server_port = SERVER_PORT_HTTP;
+    conf->max_uri_handlers = 10;
+    conf->uri_match_fn = httpd_uri_match_wildcard;
+    
+    return ESP_OK;
+
+}
 esp_err_t start_ir_webserver(server_context* server_ctx) {
-    httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
-    configure_ssl(&conf);
 
-    ESP_LOGI(TAG, "Starting server on port: '%d'", conf.port_secure);
-    esp_err_t ret = httpd_ssl_start(server_ctx->server, &conf);
-
+    httpd_ssl_config_t encrypted_conf = HTTPD_SSL_CONFIG_DEFAULT();
+    httpd_config_t unencrypted_conf = HTTPD_DEFAULT_CONFIG();
+    esp_err_t ret;
+    if(USE_HTTPS)
+    {
+        configure_encrypted_server(&encrypted_conf);
+        ESP_LOGI(TAG, "Starting https server on port: '%d'", encrypted_conf.port_secure);
+        ret = httpd_ssl_start(server_ctx->server, &encrypted_conf);
+    }
+    else {
+        config_unencrypted_server(&unencrypted_conf);
+        ESP_LOGI(TAG, "Starting http server on port: '%d'", unencrypted_conf.server_port);
+        ret = httpd_start(server_ctx->server, &unencrypted_conf);
+    }
+    
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start server: %s", esp_err_to_name(ret));
         free(server_ctx->file_buf);

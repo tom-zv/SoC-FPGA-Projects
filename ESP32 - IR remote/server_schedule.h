@@ -10,15 +10,17 @@
 
 #define EVENT_SCHED_TIMER  0x10
 #define EVENT_SCHED_UPDATE  0x20   
-#define EVENT_SCHED_DEL    0x30
+#define EVENT_SCHED_TOGGLE  0x40
+#define EVENT_SCHED_DEL    0x80
 
 #define ERR_WRONG_FORMAT 1
-#define ERR_SCHED_FULL 2
+#define ERR_INVALID_ENTRY 2
+#define ERR_SCHED_FULL 3
 
 
 #define SCHEDULE_BUF_SIZE 24  // schedule format - "I HH MM HH MM DBITMSK" || following schedule_entry
                               //                      24 to fit multi-digit indexes
-#define MAX_SCHEDULE_ENTRIES 5
+#define MAX_SCHEDULE_ENTRIES 4
 typedef struct
 {
     uint8_t hour_on;
@@ -29,6 +31,7 @@ typedef struct
     uint8_t is_on; 
     uint8_t is_valid;
 } schedule_entry;
+
 
 typedef struct
 {
